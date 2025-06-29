@@ -10,6 +10,8 @@ import torchvision
 from torchvision.transforms import v2
 
 import kornia.geometry.transform as kgm
+import kornia.color as kcolor
+from kornia.enhance import equalize_clahe
 
 torchvision.disable_beta_transforms_warning()
 
@@ -460,12 +462,16 @@ def warp_face_by_bounding_box_for_landmark_68(img, bbox, input_size):
     affine_matrix = np.array([ [ scale, 0, translation[0] ], [ 0, scale, translation[1] ] ])
 
     crop_image = v2.functional.affine(img, t.rotation, (t.translation[0], t.translation[1]) , t.scale, 0, interpolation=v2.InterpolationMode.BILINEAR, center = (0,0) )
-    crop_image = v2.functional.crop(crop_image, 0,0, input_size[1], input_size[0])
+    crop_image = v2.functional.crop(crop_image, 0, 0, input_size[1], input_size[0])
 
-    if torch.mean(crop_image.to(dtype=torch.float32)[0, :, :]) < 30:
-        crop_image = cv2.cvtColor(crop_image.permute(1, 2, 0).to('cpu').numpy(), cv2.COLOR_RGB2Lab)
-        crop_image[:, :, 0] = cv2.createCLAHE(clipLimit = 2).apply(crop_image[:, :, 0])
-        crop_image = torch.from_numpy(cv2.cvtColor(crop_image, cv2.COLOR_Lab2RGB)).to(img.device).permute(2, 0, 1)
+    if torch.mean(crop_image.to(dtype=torch.float32)[0]) < 30:
+        # perform CLAHE on GPU without converting to numpy
+        img_f = crop_image.to(dtype=torch.float32) / 255.0
+        lab = kcolor.rgb_to_lab(img_f.unsqueeze(0))
+        l_channel = equalize_clahe(lab[:, :1], clip_limit=2.0)
+        lab = torch.cat((l_channel, lab[:, 1:]), dim=1)
+        rgb = kcolor.lab_to_rgb(lab).clamp(0, 1).squeeze(0)
+        crop_image = (rgb * 255.0).to(dtype=crop_image.dtype)
 
     return crop_image, affine_matrix
 
