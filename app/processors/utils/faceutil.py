@@ -10,6 +10,8 @@ import torchvision
 from torchvision.transforms import v2
 
 import kornia.geometry.transform as kgm
+import kornia.color as kcolor
+from kornia.enhance import equalize_clahe
 
 torchvision.disable_beta_transforms_warning()
 
@@ -460,12 +462,16 @@ def warp_face_by_bounding_box_for_landmark_68(img, bbox, input_size):
     affine_matrix = np.array([ [ scale, 0, translation[0] ], [ 0, scale, translation[1] ] ])
 
     crop_image = v2.functional.affine(img, t.rotation, (t.translation[0], t.translation[1]) , t.scale, 0, interpolation=v2.InterpolationMode.BILINEAR, center = (0,0) )
-    crop_image = v2.functional.crop(crop_image, 0,0, input_size[1], input_size[0])
+    crop_image = v2.functional.crop(crop_image, 0, 0, input_size[1], input_size[0])
 
-    if torch.mean(crop_image.to(dtype=torch.float32)[0, :, :]) < 30:
-        crop_image = cv2.cvtColor(crop_image.permute(1, 2, 0).to('cpu').numpy(), cv2.COLOR_RGB2Lab)
-        crop_image[:, :, 0] = cv2.createCLAHE(clipLimit = 2).apply(crop_image[:, :, 0])
-        crop_image = torch.from_numpy(cv2.cvtColor(crop_image, cv2.COLOR_Lab2RGB)).to(img.device).permute(2, 0, 1)
+    if torch.mean(crop_image.to(dtype=torch.float32)[0]) < 30:
+        # perform CLAHE on GPU without converting to numpy
+        img_f = crop_image.to(dtype=torch.float32) / 255.0
+        lab = kcolor.rgb_to_lab(img_f.unsqueeze(0))
+        l_channel = equalize_clahe(lab[:, :1], clip_limit=2.0)
+        lab = torch.cat((l_channel, lab[:, 1:]), dim=1)
+        rgb = kcolor.lab_to_rgb(lab).clamp(0, 1).squeeze(0)
+        crop_image = (rgb * 255.0).to(dtype=crop_image.dtype)
 
     return crop_image, affine_matrix
 
@@ -2002,6 +2008,11 @@ def histogram_matching_withmask(source_image, target_image, mask, diffslider):
             print(f"No valid masked pixels for channel {channel}. Skipping histogram matching for this channel.")
             continue
 
+         # Check if masked values are empty
+        if masked_source_values.numel() == 0 or masked_target_values.numel() == 0:
+            print(f"No valid masked pixels for channel {channel}. Skipping histogram matching for this channel.")
+            continue
+
         # Ensure values are within [0.0, 1.0]
         masked_source_values = torch.clamp(masked_source_values, 0.0, 1.0)
         masked_target_values = torch.clamp(masked_target_values, 0.0, 1.0)
@@ -2326,37 +2337,55 @@ def get_face_orientation_t(face_size, lmk):
 
 def calculate_lmk_rotation_translation(source_landmarks, target_landmarks):
     """
-    Calcola la matrice di rotazione e traslazione tra due insiemi di punti di landmark.
-    
-    :param source_landmarks: numpy array di dimensione (203, 2) o (203, 3) - Landmark sorgente.
-    :param target_landmarks: numpy array di dimensione (203, 2) o (203, 3) - Landmark target.
-    :return: (R, t) - Matrice di rotazione e vettore di traslazione.
-    """
-    
-    # Step 1: Calcola i centri di massa di ciascun insieme di punti
-    source_center = np.mean(source_landmarks, axis=0)
-    target_center = np.mean(target_landmarks, axis=0)
+    Calcola la matrice di rotazione e traslazione tra due insiemi di punti di
+    landmark utilizzando operazioni PyTorch.
 
-    # Step 2: Centra i punti rispetto al centro di massa
+    Parameters
+    ----------
+    source_landmarks : ``torch.Tensor`` or array-like
+        Landmark sorgente di forma ``(N, 2)`` o ``(N, 3)``.
+    target_landmarks : ``torch.Tensor`` or array-like
+        Landmark target della stessa forma di ``source_landmarks``.
+
+    Returns
+    -------
+    ``torch.Tensor``
+        Matrice di rotazione ``(D, D)``.
+    ``torch.Tensor``
+        Vettore di traslazione ``(D,)``.
+    """
+
+    if not isinstance(source_landmarks, torch.Tensor):
+        source_landmarks = torch.as_tensor(source_landmarks)
+    if not isinstance(target_landmarks, torch.Tensor):
+        target_landmarks = torch.as_tensor(target_landmarks, device=source_landmarks.device,
+                                          dtype=source_landmarks.dtype)
+
+    # Step 1: Centri di massa
+    source_center = torch.mean(source_landmarks, dim=0)
+    target_center = torch.mean(target_landmarks, dim=0)
+
+    # Step 2: Landmark centrati
     centered_source = source_landmarks - source_center
     centered_target = target_landmarks - target_center
 
-    # Step 3: Calcola la matrice di covarianza
-    covariance_matrix = np.dot(centered_source.T, centered_target)
+    # Step 3: Matrice di covarianza
+    covariance_matrix = centered_source.t().mm(centered_target)
 
-    # Step 4: Applica la decomposizione SVD
-    U, S, Vt = np.linalg.svd(covariance_matrix)
+    # Step 4: Decomposizione SVD
+    U, S, Vh = torch.linalg.svd(covariance_matrix)
+    V = Vh.t()
 
-    # Step 5: Calcola la matrice di rotazione
-    R = np.dot(Vt.T, U.T)
+    # Step 5: Matrice di rotazione
+    R = V.mm(U.t())
 
-    # Step 6: Correggi eventuali riflessioni (per mantenere la det(R) = 1)
-    if np.linalg.det(R) < 0:
-        Vt[-1, :] *= -1
-        R = np.dot(Vt.T, U.T)
+    # Step 6: Correzione di eventuali riflessioni
+    if torch.det(R) < 0:
+        V[:, -1] *= -1
+        R = V.mm(U.t())
 
-    # Step 7: Calcola la traslazione
-    t = target_center - np.dot(source_center, R)
+    # Step 7: Vettore di traslazione
+    t = target_center - (source_center @ R)
 
     return R, t
 
@@ -2373,18 +2402,28 @@ def rotation_matrix_to_angle(R):
 
 def get_matrix_lmk_rotation_translation(R, t):
     """
-    Combina la matrice di rotazione e il vettore di traslazione in un'istanza SimilarityTransform.
-    
-    :param R: Matrice di rotazione 2x2.
-    :param t: Vettore di traslazione 2x1.
-    :return: Istanza di SimilarityTransform con rotazione e traslazione.
+    Combina matrice di rotazione e vettore di traslazione restituendo una
+    matrice ``(2, 3)`` costruita con PyTorch.
+
+    Parameters
+    ----------
+    R : ``torch.Tensor`` or array-like
+        Matrice di rotazione ``(2, 2)``.
+    t : ``torch.Tensor`` or array-like
+        Vettore di traslazione ``(2,)``.
+
+    Returns
+    -------
+    ``torch.Tensor``
+        Matrice di trasformazione ``(2, 3)``.
     """
-    # Estrai l'angolo di rotazione dalla matrice di rotazione
-    rotation_angle = rotation_matrix_to_angle(R)
 
-    # Crea un'istanza di SimilarityTransform usando l'angolo di rotazione e la traslazione
-    t = trans.SimilarityTransform(rotation=np.radians(rotation_angle), translation=t)
+    if not isinstance(R, torch.Tensor):
+        R = torch.as_tensor(R)
+    if not isinstance(t, torch.Tensor):
+        t = torch.as_tensor(t, dtype=R.dtype, device=R.device)
 
-    M = t.params[0:2]
-    
+    t = t.view(2, 1)
+    M = torch.cat([R, t], dim=1)
+
     return M
