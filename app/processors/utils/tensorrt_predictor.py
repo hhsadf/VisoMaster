@@ -227,8 +227,6 @@ class TensorRTPredictor:
             return buffers
 
         finally:
-            # Sincronizza il flusso CUDA prima di restituire il contesto
-            torch.cuda.synchronize()
             self.context_pool.put(pool_entry)
 
     def predict_async(self, feed_dict: Dict[str, Any], stream: torch.cuda.Stream) -> OrderedDictType[str, torch.Tensor]:
@@ -268,8 +266,6 @@ class TensorRTPredictor:
             # Sincronizza lo stream usato se diverso da quello corrente
             if stream != torch.cuda.current_stream():
                 stream.synchronize()
-            else:
-                torch.cuda.synchronize()
             self.context_pool.put(pool_entry)
 
     def cleanup(self) -> None:

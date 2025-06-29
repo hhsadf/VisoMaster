@@ -208,7 +208,6 @@ class InputFacesLoaderWorker(qtc.QThread):
                     face_id = self.face_ids[i]
                 self.thumbnail_ready.emit(image_file_path, face_img, embedding_store, pixmap, face_id)
                 i+=1
-        torch.cuda.empty_cache()
         self.finished.emit()
 
     def stop(self):
