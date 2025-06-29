@@ -2326,37 +2326,55 @@ def get_face_orientation_t(face_size, lmk):
 
 def calculate_lmk_rotation_translation(source_landmarks, target_landmarks):
     """
-    Calcola la matrice di rotazione e traslazione tra due insiemi di punti di landmark.
-    
-    :param source_landmarks: numpy array di dimensione (203, 2) o (203, 3) - Landmark sorgente.
-    :param target_landmarks: numpy array di dimensione (203, 2) o (203, 3) - Landmark target.
-    :return: (R, t) - Matrice di rotazione e vettore di traslazione.
-    """
-    
-    # Step 1: Calcola i centri di massa di ciascun insieme di punti
-    source_center = np.mean(source_landmarks, axis=0)
-    target_center = np.mean(target_landmarks, axis=0)
+    Calcola la matrice di rotazione e traslazione tra due insiemi di punti di
+    landmark utilizzando operazioni PyTorch.
 
-    # Step 2: Centra i punti rispetto al centro di massa
+    Parameters
+    ----------
+    source_landmarks : ``torch.Tensor`` or array-like
+        Landmark sorgente di forma ``(N, 2)`` o ``(N, 3)``.
+    target_landmarks : ``torch.Tensor`` or array-like
+        Landmark target della stessa forma di ``source_landmarks``.
+
+    Returns
+    -------
+    ``torch.Tensor``
+        Matrice di rotazione ``(D, D)``.
+    ``torch.Tensor``
+        Vettore di traslazione ``(D,)``.
+    """
+
+    if not isinstance(source_landmarks, torch.Tensor):
+        source_landmarks = torch.as_tensor(source_landmarks)
+    if not isinstance(target_landmarks, torch.Tensor):
+        target_landmarks = torch.as_tensor(target_landmarks, device=source_landmarks.device,
+                                          dtype=source_landmarks.dtype)
+
+    # Step 1: Centri di massa
+    source_center = torch.mean(source_landmarks, dim=0)
+    target_center = torch.mean(target_landmarks, dim=0)
+
+    # Step 2: Landmark centrati
     centered_source = source_landmarks - source_center
     centered_target = target_landmarks - target_center
 
-    # Step 3: Calcola la matrice di covarianza
-    covariance_matrix = np.dot(centered_source.T, centered_target)
+    # Step 3: Matrice di covarianza
+    covariance_matrix = centered_source.t().mm(centered_target)
 
-    # Step 4: Applica la decomposizione SVD
-    U, S, Vt = np.linalg.svd(covariance_matrix)
+    # Step 4: Decomposizione SVD
+    U, S, Vh = torch.linalg.svd(covariance_matrix)
+    V = Vh.t()
 
-    # Step 5: Calcola la matrice di rotazione
-    R = np.dot(Vt.T, U.T)
+    # Step 5: Matrice di rotazione
+    R = V.mm(U.t())
 
-    # Step 6: Correggi eventuali riflessioni (per mantenere la det(R) = 1)
-    if np.linalg.det(R) < 0:
-        Vt[-1, :] *= -1
-        R = np.dot(Vt.T, U.T)
+    # Step 6: Correzione di eventuali riflessioni
+    if torch.det(R) < 0:
+        V[:, -1] *= -1
+        R = V.mm(U.t())
 
-    # Step 7: Calcola la traslazione
-    t = target_center - np.dot(source_center, R)
+    # Step 7: Vettore di traslazione
+    t = target_center - (source_center @ R)
 
     return R, t
 
@@ -2373,18 +2391,28 @@ def rotation_matrix_to_angle(R):
 
 def get_matrix_lmk_rotation_translation(R, t):
     """
-    Combina la matrice di rotazione e il vettore di traslazione in un'istanza SimilarityTransform.
-    
-    :param R: Matrice di rotazione 2x2.
-    :param t: Vettore di traslazione 2x1.
-    :return: Istanza di SimilarityTransform con rotazione e traslazione.
+    Combina matrice di rotazione e vettore di traslazione restituendo una
+    matrice ``(2, 3)`` costruita con PyTorch.
+
+    Parameters
+    ----------
+    R : ``torch.Tensor`` or array-like
+        Matrice di rotazione ``(2, 2)``.
+    t : ``torch.Tensor`` or array-like
+        Vettore di traslazione ``(2,)``.
+
+    Returns
+    -------
+    ``torch.Tensor``
+        Matrice di trasformazione ``(2, 3)``.
     """
-    # Estrai l'angolo di rotazione dalla matrice di rotazione
-    rotation_angle = rotation_matrix_to_angle(R)
 
-    # Crea un'istanza di SimilarityTransform usando l'angolo di rotazione e la traslazione
-    t = trans.SimilarityTransform(rotation=np.radians(rotation_angle), translation=t)
+    if not isinstance(R, torch.Tensor):
+        R = torch.as_tensor(R)
+    if not isinstance(t, torch.Tensor):
+        t = torch.as_tensor(t, dtype=R.dtype, device=R.device)
 
-    M = t.params[0:2]
-    
+    t = t.view(2, 1)
+    M = torch.cat([R, t], dim=1)
+
     return M
