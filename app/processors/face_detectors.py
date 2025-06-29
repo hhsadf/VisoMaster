@@ -19,27 +19,45 @@ class FaceDetectors:
         kpss_5 = []
         kpss = []
 
+        use_trt = self.models_processor.provider_name in ("TensorRT", "TensorRT-Engine")
+
         if detect_mode=='RetinaFace':
-            if not self.models_processor.models['RetinaFace']:
-                self.models_processor.models['RetinaFace'] = self.models_processor.load_model('RetinaFace')
+            if use_trt:
+                if not self.models_processor.models_trt['RetinaFace']:
+                    self.models_processor.models_trt['RetinaFace'] = self.models_processor.load_model_trt('RetinaFace')
+            else:
+                if not self.models_processor.models['RetinaFace']:
+                    self.models_processor.models['RetinaFace'] = self.models_processor.load_model('RetinaFace')
 
             bboxes, kpss_5, kpss = self.detect_retinaface(img, max_num=max_num, score=score, input_size=input_size, use_landmark_detection=use_landmark_detection, landmark_detect_mode=landmark_detect_mode, landmark_score=landmark_score, from_points=from_points, rotation_angles=rotation_angles)
 
         elif detect_mode=='SCRFD':
-            if not self.models_processor.models['SCRFD2.5g']:
-                self.models_processor.models['SCRFD2.5g'] = self.models_processor.load_model('SCRFD2.5g')
+            if use_trt:
+                if not self.models_processor.models_trt['SCRFD2.5g']:
+                    self.models_processor.models_trt['SCRFD2.5g'] = self.models_processor.load_model_trt('SCRFD2.5g')
+            else:
+                if not self.models_processor.models['SCRFD2.5g']:
+                    self.models_processor.models['SCRFD2.5g'] = self.models_processor.load_model('SCRFD2.5g')
 
             bboxes, kpss_5, kpss = self.detect_scrdf(img, max_num=max_num, score=score, input_size=input_size, use_landmark_detection=use_landmark_detection, landmark_detect_mode=landmark_detect_mode, landmark_score=landmark_score, from_points=from_points, rotation_angles=rotation_angles)
 
         elif detect_mode=='Yolov8':
-            if not self.models_processor.models['YoloFace8n']:
-                self.models_processor.models['YoloFace8n'] = self.models_processor.load_model('YoloFace8n')
+            if use_trt:
+                if not self.models_processor.models_trt['YoloFace8n']:
+                    self.models_processor.models_trt['YoloFace8n'] = self.models_processor.load_model_trt('YoloFace8n')
+            else:
+                if not self.models_processor.models['YoloFace8n']:
+                    self.models_processor.models['YoloFace8n'] = self.models_processor.load_model('YoloFace8n')
 
             bboxes, kpss_5, kpss = self.detect_yoloface(img, max_num=max_num, score=score, use_landmark_detection=use_landmark_detection, landmark_detect_mode=landmark_detect_mode, landmark_score=landmark_score, from_points=from_points, rotation_angles=rotation_angles)
 
         elif detect_mode=='Yunet':
-            if not self.models_processor.models['YunetN']:
-                self.models_processor.models['YunetN'] = self.models_processor.load_model('YunetN')
+            if use_trt:
+                if not self.models_processor.models_trt['YunetN']:
+                    self.models_processor.models_trt['YunetN'] = self.models_processor.load_model_trt('YunetN')
+            else:
+                if not self.models_processor.models['YunetN']:
+                    self.models_processor.models['YunetN'] = self.models_processor.load_model('YunetN')
 
             bboxes, kpss_5, kpss = self.detect_yunet(img, max_num=max_num, score=score, use_landmark_detection=use_landmark_detection, landmark_detect_mode=landmark_detect_mode, landmark_score=landmark_score, from_points=from_points, rotation_angles=rotation_angles)
 
@@ -101,27 +119,33 @@ class FaceDetectors:
                 IM = None
                 aimg = torch.unsqueeze(det_img, 0).contiguous()
 
-            io_binding = self.models_processor.models['RetinaFace'].io_binding()
-            io_binding.bind_input(name='input.1', device_type=self.models_processor.device, device_id=0, element_type=np.float32,  shape=aimg.size(), buffer_ptr=aimg.data_ptr())
+            if self.models_processor.provider_name in ("TensorRT", "TensorRT-Engine"):
+                feed_dict = {"input.1": aimg}
+                preds_dict = self.models_processor.models_trt['RetinaFace'].predict_async(feed_dict, torch.cuda.current_stream())
+                output_names = ['448', '471', '494', '451', '474', '497', '454', '477', '500']
+                net_outs = [preds_dict[name].cpu().numpy() for name in output_names]
+            else:
+                io_binding = self.models_processor.models['RetinaFace'].io_binding()
+                io_binding.bind_input(name='input.1', device_type=self.models_processor.device, device_id=0, element_type=np.float32,  shape=aimg.size(), buffer_ptr=aimg.data_ptr())
 
-            io_binding.bind_output('448', self.models_processor.device)
-            io_binding.bind_output('471', self.models_processor.device)
-            io_binding.bind_output('494', self.models_processor.device)
-            io_binding.bind_output('451', self.models_processor.device)
-            io_binding.bind_output('474', self.models_processor.device)
-            io_binding.bind_output('497', self.models_processor.device)
-            io_binding.bind_output('454', self.models_processor.device)
-            io_binding.bind_output('477', self.models_processor.device)
-            io_binding.bind_output('500', self.models_processor.device)
+                io_binding.bind_output('448', self.models_processor.device)
+                io_binding.bind_output('471', self.models_processor.device)
+                io_binding.bind_output('494', self.models_processor.device)
+                io_binding.bind_output('451', self.models_processor.device)
+                io_binding.bind_output('474', self.models_processor.device)
+                io_binding.bind_output('497', self.models_processor.device)
+                io_binding.bind_output('454', self.models_processor.device)
+                io_binding.bind_output('477', self.models_processor.device)
+                io_binding.bind_output('500', self.models_processor.device)
 
-            # Sync and run model
-            if self.models_processor.device == "cuda":
-                torch.cuda.synchronize()
-            elif self.models_processor.device != "cpu":
-                self.models_processor.syncvec.cpu()
-            self.models_processor.models['RetinaFace'].run_with_iobinding(io_binding)
+                # Sync and run model
+                if self.models_processor.device == "cuda":
+                    torch.cuda.synchronize()
+                elif self.models_processor.device != "cpu":
+                    self.models_processor.syncvec.cpu()
+                self.models_processor.models['RetinaFace'].run_with_iobinding(io_binding)
 
-            net_outs = io_binding.copy_outputs_to_cpu()
+                net_outs = io_binding.copy_outputs_to_cpu()
 
             input_height = aimg.shape[2]
             input_width = aimg.shape[3]
@@ -355,11 +379,15 @@ class FaceDetectors:
         else:
             do_rotation = False
 
-        input_name = self.models_processor.models['SCRFD2.5g'].get_inputs()[0].name
-        outputs = self.models_processor.models['SCRFD2.5g'].get_outputs()
-        output_names = []
-        for o in outputs:
-            output_names.append(o.name)
+        if self.models_processor.provider_name in ("TensorRT", "TensorRT-Engine"):
+            input_name = self.models_processor.models_trt['SCRFD2.5g'].input_spec()[0][0]
+            output_names = [o[0] for o in self.models_processor.models_trt['SCRFD2.5g'].output_spec()]
+        else:
+            input_name = self.models_processor.models['SCRFD2.5g'].get_inputs()[0].name
+            outputs = self.models_processor.models['SCRFD2.5g'].get_outputs()
+            output_names = []
+            for o in outputs:
+                output_names.append(o.name)
 
         for angle in rotation_angles:
             # Prepare data and find model parameters
@@ -371,20 +399,25 @@ class FaceDetectors:
                 IM = None
                 aimg = torch.unsqueeze(det_img, 0).contiguous()
 
-            io_binding = self.models_processor.models['SCRFD2.5g'].io_binding()
-            io_binding.bind_input(name=input_name, device_type=self.models_processor.device, device_id=0, element_type=np.float32,  shape=aimg.size(), buffer_ptr=aimg.data_ptr())
+            if self.models_processor.provider_name in ("TensorRT", "TensorRT-Engine"):
+                feed_dict = {input_name: aimg}
+                preds_dict = self.models_processor.models_trt['SCRFD2.5g'].predict_async(feed_dict, torch.cuda.current_stream())
+                net_outs = [preds_dict[name].cpu().numpy() for name in output_names]
+            else:
+                io_binding = self.models_processor.models['SCRFD2.5g'].io_binding()
+                io_binding.bind_input(name=input_name, device_type=self.models_processor.device, device_id=0, element_type=np.float32,  shape=aimg.size(), buffer_ptr=aimg.data_ptr())
 
-            for i in range(len(output_names)):
-                io_binding.bind_output(output_names[i], self.models_processor.device)
+                for i in range(len(output_names)):
+                    io_binding.bind_output(output_names[i], self.models_processor.device)
 
-            # Sync and run model
-            if self.models_processor.device == "cuda":
-                torch.cuda.synchronize()
-            elif self.models_processor.device != "cpu":
-                self.models_processor.syncvec.cpu()
-            self.models_processor.models['SCRFD2.5g'].run_with_iobinding(io_binding)
+                # Sync and run model
+                if self.models_processor.device == "cuda":
+                    torch.cuda.synchronize()
+                elif self.models_processor.device != "cpu":
+                    self.models_processor.syncvec.cpu()
+                self.models_processor.models['SCRFD2.5g'].run_with_iobinding(io_binding)
 
-            net_outs = io_binding.copy_outputs_to_cpu()
+                net_outs = io_binding.copy_outputs_to_cpu()
 
             input_height = aimg.shape[2]
             input_width = aimg.shape[3]
@@ -630,20 +663,28 @@ class FaceDetectors:
                 aimg = torch.unsqueeze(aimg, 0).contiguous()
                 IM = None
 
-            io_binding = self.models_processor.models['YoloFace8n'].io_binding()
-            io_binding.bind_input(name='images', device_type=self.models_processor.device, device_id=0, element_type=np.float32,  shape=aimg.size(), buffer_ptr=aimg.data_ptr())
-            io_binding.bind_output('output0', self.models_processor.device)
+            if self.models_processor.provider_name in ("TensorRT", "TensorRT-Engine"):
+                feed_dict = {"images": aimg}
+                preds_dict = self.models_processor.models_trt['YoloFace8n'].predict_async(feed_dict, torch.cuda.current_stream())
+                net_outs = preds_dict['output0'].cpu().numpy()
+            else:
+                io_binding = self.models_processor.models['YoloFace8n'].io_binding()
+                io_binding.bind_input(name='images', device_type=self.models_processor.device, device_id=0, element_type=np.float32,  shape=aimg.size(), buffer_ptr=aimg.data_ptr())
+                io_binding.bind_output('output0', self.models_processor.device)
 
-            # Sync and run model
-            if self.models_processor.device == "cuda":
-                torch.cuda.synchronize()
-            elif self.models_processor.device != "cpu":
-                self.models_processor.syncvec.cpu()
-            self.models_processor.models['YoloFace8n'].run_with_iobinding(io_binding)
+                # Sync and run model
+                if self.models_processor.device == "cuda":
+                    torch.cuda.synchronize()
+                elif self.models_processor.device != "cpu":
+                    self.models_processor.syncvec.cpu()
+                self.models_processor.models['YoloFace8n'].run_with_iobinding(io_binding)
 
-            net_outs = io_binding.copy_outputs_to_cpu()
+                net_outs = io_binding.copy_outputs_to_cpu()
 
-            outputs = np.squeeze(net_outs).T
+            if isinstance(net_outs, list):
+                outputs = np.squeeze(net_outs[0]).T
+            else:
+                outputs = np.squeeze(net_outs).T
 
             bbox_raw, score_raw, kps_raw, *_ = np.split(outputs, [4, 5], axis=1)
 
@@ -855,11 +896,15 @@ class FaceDetectors:
         else:
             do_rotation = False
 
-        input_name = self.models_processor.models['YunetN'].get_inputs()[0].name
-        outputs = self.models_processor.models['YunetN'].get_outputs()
-        output_names = []
-        for o in outputs:
-            output_names.append(o.name)
+        if self.models_processor.provider_name in ("TensorRT", "TensorRT-Engine"):
+            input_name = self.models_processor.models_trt['YunetN'].input_spec()[0][0]
+            output_names = [o[0] for o in self.models_processor.models_trt['YunetN'].output_spec()]
+        else:
+            input_name = self.models_processor.models['YunetN'].get_inputs()[0].name
+            outputs = self.models_processor.models['YunetN'].get_outputs()
+            output_names = []
+            for o in outputs:
+                output_names.append(o.name)
 
         for angle in rotation_angles:
             # Prepare data and find model parameters
@@ -872,19 +917,24 @@ class FaceDetectors:
                 aimg = torch.unsqueeze(det_img, 0).contiguous()
             aimg = aimg.to(dtype=torch.float32)
 
-            io_binding = self.models_processor.models['YunetN'].io_binding()
-            io_binding.bind_input(name=input_name, device_type=self.models_processor.device, device_id=0, element_type=np.float32,  shape=aimg.size(), buffer_ptr=aimg.data_ptr())
+            if self.models_processor.provider_name in ("TensorRT", "TensorRT-Engine"):
+                feed_dict = {input_name: aimg}
+                preds_dict = self.models_processor.models_trt['YunetN'].predict_async(feed_dict, torch.cuda.current_stream())
+                net_outs = [preds_dict[name].cpu().numpy() for name in output_names]
+            else:
+                io_binding = self.models_processor.models['YunetN'].io_binding()
+                io_binding.bind_input(name=input_name, device_type=self.models_processor.device, device_id=0, element_type=np.float32,  shape=aimg.size(), buffer_ptr=aimg.data_ptr())
 
-            for i in range(len(output_names)):
-                io_binding.bind_output(output_names[i], self.models_processor.device)
+                for i in range(len(output_names)):
+                    io_binding.bind_output(output_names[i], self.models_processor.device)
 
-            # Sync and run model
-            if self.models_processor.device == "cuda":
-                torch.cuda.synchronize()
-            elif self.models_processor.device != "cpu":
-                self.models_processor.syncvec.cpu()
-            self.models_processor.models['YunetN'].run_with_iobinding(io_binding)
-            net_outs = io_binding.copy_outputs_to_cpu()
+                # Sync and run model
+                if self.models_processor.device == "cuda":
+                    torch.cuda.synchronize()
+                elif self.models_processor.device != "cpu":
+                    self.models_processor.syncvec.cpu()
+                self.models_processor.models['YunetN'].run_with_iobinding(io_binding)
+                net_outs = io_binding.copy_outputs_to_cpu()
 
             strides = [8, 16, 32]
             for idx, stride in enumerate(strides):

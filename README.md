@@ -26,7 +26,7 @@
 - **Live Swapping via Webcam**: Stream to virtual camera for Twitch, YouTube, Zoom, etc.  
 - **User-Friendly Interface**: Intuitive and easy to use  
 - **Video Markers**: Adjust settings per frame for precise results  
-- **TensorRT Support**: Leverages supported GPUs for ultra-fast processing  
+- **TensorRT Support**: Leverages supported GPUs for ultra-fast processing and now includes face detection engines (RetinaFace, SCRFD, YoloFace8n, YunetN)
 - **Many More Advanced Features** 🎉  
 
 ## Automatic Installation (Windows)

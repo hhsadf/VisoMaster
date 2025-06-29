@@ -5,8 +5,8 @@ try:
     import tensorrt as trt
     models_trt_list = [
         {
-            'model_name': 'LivePortraitMotionExtractor', 
-            'local_path': f'{models_dir}/liveportrait_onnx/motion_extractor.' + trt.__version__ + '.trt', 
+            'model_name': 'LivePortraitMotionExtractor',
+            'local_path': f'{models_dir}/liveportrait_onnx/motion_extractor.' + trt.__version__ + '.trt',
             'hash': '8cab6d8fe093a07ee59e14bf83b9fbc90732ce7a6c1732b88b59f4457bea6204'
         },
         {
@@ -30,9 +30,29 @@ try:
             'hash': '8448de922a824b7b11eb7f470805ec22cf4ee541f7d66afeb2965094f96fd3ab'
         },
         {
-            'model_name': 'LivePortraitWarpingSpadeFix', 
-            'local_path': f'{models_dir}/liveportrait_onnx/warping_spade-fix.' + trt.__version__ + '.trt', 
+            'model_name': 'LivePortraitWarpingSpadeFix',
+            'local_path': f'{models_dir}/liveportrait_onnx/warping_spade-fix.' + trt.__version__ + '.trt',
             'hash': '24acdb6379b28fbefefb6339b3605693e00f1703c21ea5b8fec0215e521f6912'
+        },
+        {
+            'model_name': 'RetinaFace',
+            'local_path': f'{models_dir}/det_10g.' + trt.__version__ + '.trt',
+            'hash': ''
+        },
+        {
+            'model_name': 'SCRFD2.5g',
+            'local_path': f'{models_dir}/scrfd_2.5g_bnkps.' + trt.__version__ + '.trt',
+            'hash': ''
+        },
+        {
+            'model_name': 'YoloFace8n',
+            'local_path': f'{models_dir}/yoloface_8n.' + trt.__version__ + '.trt',
+            'hash': ''
+        },
+        {
+            'model_name': 'YunetN',
+            'local_path': f'{models_dir}/yunet_n_640_640.' + trt.__version__ + '.trt',
+            'hash': ''
         }
     ]
 except ModuleNotFoundError:
