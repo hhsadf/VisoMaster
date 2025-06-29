@@ -49,9 +49,10 @@ class EngineBuilder:
         # Imposta il livello di ottimizzazione del builder (se fornito)
         self.config.builder_optimization_level = builder_optimization_level
 
-        # Crea un profilo di ottimizzazione, se necessario
-        profile = self.builder.create_optimization_profile()
-        self.config.add_optimization_profile(profile)
+        # Crea e memorizza un profilo di ottimizzazione
+        # Verrà utilizzato successivamente per impostare le shape
+        self.profile = self.builder.create_optimization_profile()
+        self.config.add_optimization_profile(self.profile)
 
         self.batch_size = None
         self.network = None
@@ -84,6 +85,29 @@ class EngineBuilder:
 
         inputs = [self.network.get_input(i) for i in range(self.network.num_inputs)]
         outputs = [self.network.get_output(i) for i in range(self.network.num_outputs)]
+
+        # Imposta min/opt/max shapes per input con dimensioni dinamiche
+        if hasattr(self, "profile") and self.profile is not None:
+            for inp in inputs:
+                shape = list(inp.shape)
+                min_shape = list(shape)
+                opt_shape = list(shape)
+                max_shape = list(shape)
+                for idx, dim in enumerate(shape):
+                    if dim == -1:
+                        if idx == 0:
+                            min_shape[idx] = 1
+                            opt_shape[idx] = 1
+                            max_shape[idx] = 1
+                        elif idx >= len(shape) - 2:
+                            min_shape[idx] = 224
+                            opt_shape[idx] = 640
+                            max_shape[idx] = 640
+                        else:
+                            min_shape[idx] = 1
+                            opt_shape[idx] = 1
+                            max_shape[idx] = 1
+                self.profile.set_shape(inp.name, tuple(min_shape), tuple(opt_shape), tuple(max_shape))
 
         log.info("Network Description")
         for net_input in inputs:
