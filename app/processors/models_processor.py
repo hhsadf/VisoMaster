@@ -246,6 +246,7 @@ class ModelsProcessor(QtCore.QObject):
         self.providers = providers
         self.provider_name = provider_name
         self.lp_mask_crop = self.lp_mask_crop.to(self.device)
+        torch.cuda.empty_cache()
 
         return self.provider_name
 
@@ -270,7 +271,6 @@ class ModelsProcessor(QtCore.QObject):
         self.delete_models()
         self.delete_models_dfm()
         self.delete_models_trt()
-        torch.cuda.empty_cache()
 
 
     def load_inswapper_iss_emap(self, model_name):
